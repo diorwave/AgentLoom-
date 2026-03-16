@@ -1,0 +1,82 @@
+# AI Workflow Platform — local/dev
+# Run: docker compose up -d && docker compose exec app composer install
+# Migrate: docker compose exec app php artisan migrate
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ai-workflow-app
+    container_name: ai-workflow-app
+    working_dir: /app
+    volumes:
+      - .:/app
+      - /app/vendor  # exclude vendor from host overwrite
+    env_file: .env
+    environment:
+      - APP_ENV=local
+      - DB_HOST=postgres
+      - REDIS_HOST=redis
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    command: php artisan serve --host=0.0.0.0 --port=8000
+    ports:
+      - "8000:8000"
+    networks:
+      - ai-workflow
+
+  queue:
+    image: ai-workflow-app
+    working_dir: /app
+    env_file: .env
+    environment:
+      - APP_ENV=local
+      - DB_HOST=postgres
+      - REDIS_HOST=redis
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    command: php artisan queue:work redis --tries=3 --sleep=3
+    networks:
+      - ai-workflow
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ai_workflow
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ai-workflow
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - ai-workflow
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  ai-workflow:
+    driver: bridge
